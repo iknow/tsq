@@ -21,21 +21,21 @@ struct Cli {
 }
 
 struct LanguageBundle {
-    language: Rc<Language>,
+    language: Language,
     query: Query,
 }
 
 impl LanguageBundle {
     fn parse(&self, text: impl AsRef<[u8]>) -> Option<Tree> {
         let mut parser = Parser::new();
-        parser.set_language(*self.language).unwrap();
+        parser.set_language(self.language).unwrap();
         parser.parse(text, None)
     }
 }
 
 struct LanguageLoader {
     dir: PathBuf,
-    cache: HashMap<String, Rc<Language>>,
+    cache: HashMap<String, Language>,
 }
 
 impl LanguageLoader {
@@ -61,13 +61,13 @@ impl LanguageLoader {
         result
     }
 
-    fn get_language(&mut self, name: &str) -> Result<Rc<Language>, Box<dyn std::error::Error>> {
+    fn get_language(&mut self, name: &str) -> Result<Language, Box<dyn std::error::Error>> {
         let stored_value = self.cache.get(name);
         match stored_value {
-            Some(x) => Ok(x.clone()),
+            Some(x) => Ok(*x),
             None => {
-                let language = Rc::new(self.load_language(name)?);
-                self.cache.insert(String::from(name), language.clone());
+                let language = self.load_language(name)?;
+                self.cache.insert(String::from(name), language);
                 return Ok(language);
             }
         }
@@ -90,7 +90,7 @@ fn init_languages(cli: &Cli) -> HashMap<String, Rc<LanguageBundle>> {
                 .get_language(language_name)
                 .expect(format!("Load language: {}", language_name).as_str());
 
-            let query = Query::new(*language, &query_str).expect("Construct query");
+            let query = Query::new(language, &query_str).expect("Construct query");
 
             let bundle = Rc::new(LanguageBundle { language, query });
 
