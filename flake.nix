@@ -14,8 +14,29 @@
       {
         defaultPackage = naersk-lib.buildPackage ./.;
         devShell = with pkgs; mkShell {
-          buildInputs = [ cargo rustc rustfmt pre-commit rustPackages.clippy ];
+          buildInputs = [
+            cargo rustc rustfmt pre-commit rustPackages.clippy rust-analyzer
+          ];
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
+          GRAMMARS =
+            with tree-sitter-grammars;
+            let ext = hostPlatform.extensions.sharedLibrary; in
+              stdenv.mkDerivation {
+                name = "grammar-dir";
+                nativeBuildInputs = [ fixDarwinDylibNames ];
+
+                dontUnpack = true;
+
+                buildPhase = ''
+                  mkdir $out $out/lib
+                  cp -a ${tree-sitter-typescript}/parser $out/lib/libtypescript${ext}
+                  cp -a ${tree-sitter-tsx}/parser $out/lib/libtsx${ext}
+                '';
+
+                installPhase = ''
+                  :
+                '';
+              };
         };
       });
 }
