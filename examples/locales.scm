@@ -8,6 +8,5 @@
   arguments: (arguments
     .
     (string (string_fragment) @key)
-    .
   )
-  (#eq? @ident "t"))
+  (#match? @ident "^tx?$"))
