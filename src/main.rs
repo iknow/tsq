@@ -121,12 +121,12 @@ fn main() {
 
             let contents = fs::read_to_string(entry_path).expect("Read source file");
             let tree = lang.parse(&contents).expect("Parse source");
-
-            let mut cursor = QueryCursor::new();
-            let captures = cursor.captures(&lang.query, tree.root_node(), contents.as_bytes());
             let names = lang.query.capture_names();
 
-            for (m, _index) in captures {
+            let mut cursor = QueryCursor::new();
+            let matches = cursor.matches(&lang.query, tree.root_node(), contents.as_bytes());
+
+            for m in matches {
                 let mut data = json::JsonValue::new_object();
 
                 for qc in m.captures {
