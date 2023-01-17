@@ -18,7 +18,7 @@
             cargo rustc rustfmt pre-commit rustPackages.clippy rust-analyzer
           ];
           RUST_SRC_PATH = rustPlatform.rustLibSrc;
-          GRAMMARS =
+          GRAMMAR_DIR =
             with tree-sitter-grammars;
             let ext = hostPlatform.extensions.sharedLibrary; in
               stdenv.mkDerivation {
@@ -28,9 +28,9 @@
                 dontUnpack = true;
 
                 buildPhase = ''
-                  mkdir $out $out/lib
-                  cp -a ${tree-sitter-typescript}/parser $out/lib/libtypescript${ext}
-                  cp -a ${tree-sitter-tsx}/parser $out/lib/libtsx${ext}
+                  mkdir $out
+                  ln -s ${tree-sitter-typescript} $out/typescript
+                  ln -s ${tree-sitter-tsx} $out/tsx
                 '';
 
                 installPhase = ''
