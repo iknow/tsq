@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -16,6 +16,9 @@ struct Cli {
 
     #[arg(short, long)]
     languages: Vec<String>,
+
+    #[arg(short, long)]
+    exclude: Vec<String>,
 
     globs: Vec<String>,
 }
@@ -110,9 +113,25 @@ fn main() {
 
     let langs = init_languages(&args);
 
+    let excluded = {
+        let mut excluded_files = HashSet::new();
+        for path in args.exclude {
+            let canonical_path = std::fs::canonicalize(path).expect("Canonicalize excluded file");
+            excluded_files.insert(canonical_path);
+        }
+        move |path: &PathBuf| {
+            let canonical_path = std::fs::canonicalize(path).expect("Canonicalize input file");
+            excluded_files.contains(&canonical_path)
+        }
+    };
+
     for pattern in args.globs {
         for entry in glob(&pattern).expect("Failed to glob inputs") {
             let entry_path = entry.expect("Read glob entry");
+
+            if excluded(&entry_path) {
+                continue;
+            }
 
             let extension = entry_path.extension().unwrap().to_str().unwrap();
             let lang = langs
