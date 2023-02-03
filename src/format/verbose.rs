@@ -1,20 +1,20 @@
 use crate::format::Formatter;
 use json::object;
+
 use std::path::Path;
-use tree_sitter::{Query, QueryMatches, TextProvider};
+
+use tree_sitter::{Query, QueryMatches};
 
 pub struct Verbose {}
 
 impl Formatter for Verbose {
-    fn emit_matches<'a, 'tree, T>(
-        self: &Self,
+    fn emit_matches<'a>(
+        &self,
         query: &Query,
         contents: &str,
         file_path: &Path,
-        matches: QueryMatches<'a, 'tree, T>,
-    ) where
-        T: TextProvider<'a> + 'a,
-    {
+        matches: QueryMatches<'a, 'a, &'a [u8]>,
+    ) {
         let names = query.capture_names();
 
         for m in matches {

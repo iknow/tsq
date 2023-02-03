@@ -3,14 +3,12 @@ mod format;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use clap::Parser as ClapParser;
 use glob::glob;
-use tree_sitter::{Language, Parser, Query, QueryCursor, QueryMatches, TextProvider, Tree};
-
-use crate::format::Formatter;
+use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -36,23 +34,11 @@ pub enum Format {
 }
 
 impl Format {
-    fn emit_matches<'a, 'tree, T>(
-        self: &Self,
-        query: &Query,
-        contents: &str,
-        file_path: &Path,
-        matches: QueryMatches<'a, 'tree, T>,
-    ) where
-        T: TextProvider<'a> + 'a,
-    {
+    fn formatter(&self) -> Box<dyn format::Formatter> {
         match *self {
-            Format::Terse => {
-                crate::format::terse().emit_matches(&query, &contents, &file_path, matches)
-            }
-            Format::Verbose => {
-                crate::format::verbose().emit_matches(&query, &contents, &file_path, matches)
-            }
-        };
+            Format::Terse => Box::new(crate::format::terse()),
+            Format::Verbose => Box::new(crate::format::verbose()),
+        }
     }
 }
 
@@ -104,7 +90,7 @@ impl LanguageLoader {
             None => {
                 let language = self.load_language(name)?;
                 self.cache.insert(String::from(name), language);
-                return Ok(language);
+                Ok(language)
             }
         }
     }
@@ -120,17 +106,17 @@ fn init_languages(cli: &Cli) -> HashMap<String, Rc<LanguageBundle>> {
 
     for language_spec in &cli.languages {
         if let [extensions, language_name] =
-            &language_spec.split("=").take(2).collect::<Vec<&str>>()[..]
+            &language_spec.split('=').take(2).collect::<Vec<&str>>()[..]
         {
             let language = loader
                 .get_language(language_name)
-                .expect(format!("Load language: {}", language_name).as_str());
+                .unwrap_or_else(|_| panic!("Load language: {}", language_name));
 
             let query = Query::new(language, &query_str).expect("Construct query");
 
             let bundle = Rc::new(LanguageBundle { language, query });
 
-            for ext in extensions.split(",") {
+            for ext in extensions.split(',') {
                 result.insert(ext.to_string(), bundle.clone());
             }
         } else {
@@ -138,13 +124,15 @@ fn init_languages(cli: &Cli) -> HashMap<String, Rc<LanguageBundle>> {
         }
     }
 
-    return result;
+    result
 }
 
 fn main() {
     let args = Cli::parse();
 
     let langs = init_languages(&args);
+
+    let formatter = args.format.formatter();
 
     let excluded = {
         let mut excluded_files = HashSet::new();
@@ -169,7 +157,7 @@ fn main() {
             let extension = entry_path.extension().unwrap().to_str().unwrap();
             let lang = langs
                 .get(extension)
-                .expect(format!("Getting parser for extension {:?}", extension).as_str());
+                .unwrap_or_else(|| panic!("Getting parser for extension {:?}", extension));
 
             let contents = fs::read_to_string(&entry_path).expect("Read source file");
             let tree = lang.parse(&contents).expect("Parse source");
@@ -177,8 +165,7 @@ fn main() {
             let mut cursor = QueryCursor::new();
             let matches = cursor.matches(&lang.query, tree.root_node(), contents.as_bytes());
 
-            args.format
-                .emit_matches(&lang.query, &contents, &entry_path, matches);
+            formatter.emit_matches(&lang.query, &contents, &entry_path, matches);
         }
     }
 }

@@ -1,24 +1,24 @@
 use std::path::Path;
-use tree_sitter::{Query, QueryMatches, TextProvider};
+
+use tree_sitter::{Query, QueryMatches};
 
 mod terse;
 mod verbose;
 
 pub trait Formatter {
-    fn emit_matches<'a, 'tree, T>(
-        self: &Self,
+    fn emit_matches<'a>(
+        &self,
         query: &Query,
         contents: &str,
         file_path: &Path,
-        matches: QueryMatches<'a, 'tree, T>,
-    ) where
-        T: TextProvider<'a> + 'a;
+        matches: QueryMatches<'a, 'a, &'a [u8]>,
+    );
 }
 
 pub fn terse() -> impl Formatter {
-    return terse::Terse {};
+    terse::Terse {}
 }
 
 pub fn verbose() -> impl Formatter {
-    return verbose::Verbose {};
+    verbose::Verbose {}
 }
