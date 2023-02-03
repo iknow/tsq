@@ -31,6 +31,7 @@ struct Cli {
 pub enum Format {
     Terse,
     Verbose,
+    Snippet,
 }
 
 impl Format {
@@ -38,6 +39,7 @@ impl Format {
         match *self {
             Format::Terse => Box::new(crate::format::terse()),
             Format::Verbose => Box::new(crate::format::verbose()),
+            Format::Snippet => Box::new(crate::format::snippet()),
         }
     }
 }

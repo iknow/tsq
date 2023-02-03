@@ -2,6 +2,7 @@ use std::path::Path;
 
 use tree_sitter::{Query, QueryMatches};
 
+mod snippet;
 mod terse;
 mod verbose;
 
@@ -21,4 +22,8 @@ pub fn terse() -> impl Formatter {
 
 pub fn verbose() -> impl Formatter {
     verbose::Verbose {}
+}
+
+pub fn snippet() -> impl Formatter {
+    snippet::SnippetFormatter {}
 }
