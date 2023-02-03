@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use clap::Parser as ClapParser;
 use glob::glob;
-use json;
+use json::{self, object};
 use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
 #[derive(clap::Parser)]
@@ -138,7 +138,7 @@ fn main() {
                 .get(extension)
                 .expect(format!("Getting parser for extension {:?}", extension).as_str());
 
-            let contents = fs::read_to_string(entry_path).expect("Read source file");
+            let contents = fs::read_to_string(&entry_path).expect("Read source file");
             let tree = lang.parse(&contents).expect("Parse source");
             let names = lang.query.capture_names();
 
@@ -152,10 +152,30 @@ fn main() {
                     let i: usize = qc.index.try_into().unwrap();
                     let name = &names[i];
                     let match_contents = &contents[qc.node.byte_range()];
-                    data[name] = match_contents.into();
+                    data[name] = object! {
+                      node: {
+                        kind: qc.node.kind(),
+                        start_byte: qc.node.start_byte(),
+                        end_byte: qc.node.end_byte(),
+                        start_position: {
+                          row: qc.node.start_position().row,
+                          column: qc.node.start_position().column,
+                        },
+                        end_position: {
+                          row: qc.node.end_position().row,
+                          column: qc.node.end_position().column,
+                        }
+                      },
+                      content: Into::<String>::into(match_contents),
+                    }
                 }
 
-                println!("{}", data.dump());
+                let match_obj = object! {
+                  file: entry_path.to_str(),
+                  matches: data,
+                };
+
+                println!("{}", match_obj.dump());
             }
         }
     }
