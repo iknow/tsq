@@ -1,13 +1,16 @@
+mod format;
+
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use clap::Parser as ClapParser;
 use glob::glob;
-use json::{self, object};
-use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
+use tree_sitter::{Language, Parser, Query, QueryCursor, QueryMatches, TextProvider, Tree};
+
+use crate::format::Formatter;
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -20,7 +23,37 @@ struct Cli {
     #[arg(short, long)]
     exclude: Vec<String>,
 
+    #[arg(short, long, value_enum, default_value_t = Format::Terse)]
+    format: Format,
+
     globs: Vec<String>,
+}
+
+#[derive(clap::ValueEnum, Clone)]
+pub enum Format {
+    Terse,
+    Verbose,
+}
+
+impl Format {
+    fn emit_matches<'a, 'tree, T>(
+        self: &Self,
+        query: &Query,
+        contents: &str,
+        file_path: &Path,
+        matches: QueryMatches<'a, 'tree, T>,
+    ) where
+        T: TextProvider<'a> + 'a,
+    {
+        match *self {
+            Format::Terse => {
+                crate::format::terse().emit_matches(&query, &contents, &file_path, matches)
+            }
+            Format::Verbose => {
+                crate::format::verbose().emit_matches(&query, &contents, &file_path, matches)
+            }
+        };
+    }
 }
 
 struct LanguageBundle {
@@ -140,43 +173,12 @@ fn main() {
 
             let contents = fs::read_to_string(&entry_path).expect("Read source file");
             let tree = lang.parse(&contents).expect("Parse source");
-            let names = lang.query.capture_names();
 
             let mut cursor = QueryCursor::new();
             let matches = cursor.matches(&lang.query, tree.root_node(), contents.as_bytes());
 
-            for m in matches {
-                let mut data = json::JsonValue::new_object();
-
-                for qc in m.captures {
-                    let i: usize = qc.index.try_into().unwrap();
-                    let name = &names[i];
-                    let match_contents = &contents[qc.node.byte_range()];
-                    data[name] = object! {
-                      node: {
-                        kind: qc.node.kind(),
-                        start_byte: qc.node.start_byte(),
-                        end_byte: qc.node.end_byte(),
-                        start_position: {
-                          row: qc.node.start_position().row,
-                          column: qc.node.start_position().column,
-                        },
-                        end_position: {
-                          row: qc.node.end_position().row,
-                          column: qc.node.end_position().column,
-                        }
-                      },
-                      content: Into::<String>::into(match_contents),
-                    }
-                }
-
-                let match_obj = object! {
-                  file: entry_path.to_str(),
-                  matches: data,
-                };
-
-                println!("{}", match_obj.dump());
-            }
+            args.format
+                .emit_matches(&lang.query, &contents, &entry_path, matches);
         }
     }
 }
