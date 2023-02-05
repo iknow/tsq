@@ -1,24 +1,27 @@
 use crate::format::Formatter;
 
 use std::collections::HashMap;
+use std::io::{self, Write};
 use std::path::Path;
 
 use tree_sitter::{Query, QueryMatches, TextProvider};
 
 pub struct Terse {}
 
-impl<'a, 'tree, T> Formatter<'a, 'tree, T> for Terse
+impl<'a, 'tree, T, Writer> Formatter<'a, 'tree, T, Writer> for Terse
 where
+    Writer: Write,
     T: TextProvider<'a> + 'a,
     'tree: 'a,
 {
     fn emit_matches(
         &self,
+        writer: &mut Writer,
         query: &Query,
         contents: &str,
         _file_path: &Path,
         matches: QueryMatches<'a, 'tree, T>,
-    ) {
+    ) -> io::Result<()> {
         let names = query.capture_names();
 
         for m in matches {
@@ -31,7 +34,9 @@ where
                 data.insert(name.into(), match_contents.into());
             }
 
-            println!("{}", serde_json::to_string(&data).unwrap());
+            serde_json::to_writer(&mut *writer, &data)?
         }
+
+        Ok(())
     }
 }

@@ -1,25 +1,30 @@
 use crate::format::Formatter;
+
+use std::io::{Result, Write};
+use std::{ops::Range, path::Path};
+
 use annotate_snippets::{
     display_list::{DisplayList, FormatOptions},
     snippet::{Annotation, AnnotationType, Slice, Snippet, SourceAnnotation},
 };
-use std::{ops::Range, path::Path};
 use tree_sitter::TextProvider;
 
 pub struct SnippetFormatter {}
 
-impl<'a, 'tree, T> Formatter<'a, 'tree, T> for SnippetFormatter
+impl<'a, 'tree, T, Writer> Formatter<'a, 'tree, T, Writer> for SnippetFormatter
 where
+    Writer: Write,
     T: TextProvider<'a> + 'a,
     'tree: 'a,
 {
     fn emit_matches(
         &self,
+        writer: &mut Writer,
         query: &tree_sitter::Query,
         contents: &str,
         file_path: &Path,
         matches: tree_sitter::QueryMatches<'a, 'tree, T>,
-    ) {
+    ) -> Result<()> {
         let names = query.capture_names();
 
         let mut slices = Vec::new();
@@ -79,7 +84,7 @@ where
         }
 
         if slices.is_empty() {
-            return;
+            return Ok(());
         }
 
         let snippet = Snippet {
@@ -96,6 +101,7 @@ where
             },
         };
 
-        println!("{}", DisplayList::from(snippet));
+        writeln!(writer, "{}", DisplayList::from(snippet))?;
+        Ok(())
     }
 }

@@ -1,6 +1,7 @@
 use crate::format::Formatter;
 
 use std::collections::HashMap;
+use std::io::{self, Write};
 use std::path::Path;
 
 use serde::Serialize;
@@ -36,18 +37,20 @@ struct Matches {
     matches: Vec<HashMap<String, Capture>>,
 }
 
-impl<'a, 'tree, T> Formatter<'a, 'tree, T> for Verbose
+impl<'a, 'tree, T, Writer> Formatter<'a, 'tree, T, Writer> for Verbose
 where
+    Writer: Write,
     T: TextProvider<'a> + 'a,
     'tree: 'a,
 {
     fn emit_matches(
         &self,
+        writer: &mut Writer,
         query: &Query,
         contents: &str,
         file_path: &Path,
         matches: QueryMatches<'a, 'tree, T>,
-    ) {
+    ) -> io::Result<()> {
         let names = query.capture_names();
 
         let mut matches_json = Vec::new();
@@ -89,6 +92,10 @@ where
             matches: matches_json,
         };
 
-        println!("{}", serde_json::to_string(&match_obj).unwrap());
+        serde_json::to_writer(writer, &match_obj)?;
+        Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {}

@@ -3,7 +3,8 @@ mod format;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use clap::Parser as ClapParser;
@@ -35,8 +36,9 @@ pub enum Format {
 }
 
 impl Format {
-    fn formatter<'a, 'tree, T>(&self) -> Box<dyn format::Formatter<'a, 'tree, T>>
+    fn formatter<'a, 'tree, T, Writer>(&self) -> Box<dyn format::Formatter<'a, 'tree, T, Writer>>
     where
+        Writer: Write,
         T: TextProvider<'a> + 'a,
         'tree: 'a,
     {
@@ -133,6 +135,26 @@ fn init_languages(cli: &Cli) -> HashMap<String, Rc<LanguageBundle>> {
     result
 }
 
+pub(crate) fn process_file<W>(
+    writer: &mut W,
+    format: &Format,
+    path: &Path,
+    lang: &LanguageBundle,
+) -> io::Result<()>
+where
+    W: Write,
+{
+    let contents = fs::read_to_string(path).expect("Read source file");
+    let tree = lang.parse(&contents).expect("Parse source");
+
+    let mut cursor = QueryCursor::new();
+    let matches = cursor.matches(&lang.query, tree.root_node(), contents.as_bytes());
+
+    let formatter = format.formatter();
+    formatter.emit_matches(writer, &lang.query, &contents, path, matches)?;
+    Ok(())
+}
+
 fn main() {
     let args = Cli::parse();
 
@@ -163,14 +185,7 @@ fn main() {
                 .get(extension)
                 .unwrap_or_else(|| panic!("Getting parser for extension {:?}", extension));
 
-            let contents = fs::read_to_string(&entry_path).expect("Read source file");
-            let tree = lang.parse(&contents).expect("Parse source");
-
-            let mut cursor = QueryCursor::new();
-            let matches = cursor.matches(&lang.query, tree.root_node(), contents.as_bytes());
-
-            let formatter = args.format.formatter();
-            formatter.emit_matches(&lang.query, &contents, &entry_path, matches);
+            process_file(&mut io::stdout(), &args.format, &entry_path, lang).unwrap();
         }
     }
 }
