@@ -1,5 +1,8 @@
 use crate::format::Formatter;
+
+use std::collections::HashMap;
 use std::path::Path;
+
 use tree_sitter::{Query, QueryMatches, TextProvider};
 
 pub struct Terse {}
@@ -19,16 +22,16 @@ where
         let names = query.capture_names();
 
         for m in matches {
-            let mut data = json::JsonValue::new_object();
+            let mut data = HashMap::<String, String>::new();
 
             for qc in m.captures {
                 let i: usize = qc.index.try_into().unwrap();
                 let name = &names[i];
                 let match_contents = &contents[qc.node.byte_range()];
-                data[name] = match_contents.into();
+                data.insert(name.into(), match_contents.into());
             }
 
-            println!("{}", data.dump());
+            println!("{}", serde_json::to_string(&data).unwrap());
         }
     }
 }
