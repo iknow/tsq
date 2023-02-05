@@ -1,16 +1,20 @@
 use crate::format::Formatter;
 use std::path::Path;
-use tree_sitter::{Query, QueryMatches};
+use tree_sitter::{Query, QueryMatches, TextProvider};
 
 pub struct Terse {}
 
-impl Formatter for Terse {
-    fn emit_matches<'a>(
+impl<'a, 'tree, T> Formatter<'a, 'tree, T> for Terse
+where
+    T: TextProvider<'a> + 'a,
+    'tree: 'a,
+{
+    fn emit_matches(
         &self,
         query: &Query,
         contents: &str,
         _file_path: &Path,
-        matches: QueryMatches<'a, 'a, &'a [u8]>,
+        matches: QueryMatches<'a, 'tree, T>,
     ) {
         let names = query.capture_names();
 

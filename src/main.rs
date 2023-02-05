@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use clap::Parser as ClapParser;
 use glob::glob;
-use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
+use tree_sitter::{Language, Parser, Query, QueryCursor, TextProvider, Tree};
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -35,11 +35,15 @@ pub enum Format {
 }
 
 impl Format {
-    fn formatter(&self) -> Box<dyn format::Formatter> {
+    fn formatter<'a, 'tree, T>(&self) -> Box<dyn format::Formatter<'a, 'tree, T>>
+    where
+        T: TextProvider<'a> + 'a,
+        'tree: 'a,
+    {
         match *self {
-            Format::Terse => Box::new(crate::format::terse()),
-            Format::Verbose => Box::new(crate::format::verbose()),
-            Format::Snippet => Box::new(crate::format::snippet()),
+            Format::Terse => Box::new(crate::format::terse::Terse {}),
+            Format::Verbose => Box::new(crate::format::verbose::Verbose {}),
+            Format::Snippet => Box::new(crate::format::snippet::SnippetFormatter {}),
         }
     }
 }
@@ -134,8 +138,6 @@ fn main() {
 
     let langs = init_languages(&args);
 
-    let formatter = args.format.formatter();
-
     let excluded = {
         let mut excluded_files = HashSet::new();
         for path in args.exclude {
@@ -167,6 +169,7 @@ fn main() {
             let mut cursor = QueryCursor::new();
             let matches = cursor.matches(&lang.query, tree.root_node(), contents.as_bytes());
 
+            let formatter = args.format.formatter();
             formatter.emit_matches(&lang.query, &contents, &entry_path, matches);
         }
     }

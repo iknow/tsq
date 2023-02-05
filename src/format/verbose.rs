@@ -3,17 +3,21 @@ use json::object;
 
 use std::path::Path;
 
-use tree_sitter::{Query, QueryMatches};
+use tree_sitter::{Query, QueryMatches, TextProvider};
 
 pub struct Verbose {}
 
-impl Formatter for Verbose {
-    fn emit_matches<'a>(
+impl<'a, 'tree, T> Formatter<'a, 'tree, T> for Verbose
+where
+    T: TextProvider<'a> + 'a,
+    'tree: 'a,
+{
+    fn emit_matches(
         &self,
         query: &Query,
         contents: &str,
         file_path: &Path,
-        matches: QueryMatches<'a, 'a, &'a [u8]>,
+        matches: QueryMatches<'a, 'tree, T>,
     ) {
         let names = query.capture_names();
 

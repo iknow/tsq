@@ -4,16 +4,21 @@ use annotate_snippets::{
     snippet::{Annotation, AnnotationType, Slice, Snippet, SourceAnnotation},
 };
 use std::{ops::Range, path::Path};
+use tree_sitter::TextProvider;
 
 pub struct SnippetFormatter {}
 
-impl Formatter for SnippetFormatter {
-    fn emit_matches<'a>(
+impl<'a, 'tree, T> Formatter<'a, 'tree, T> for SnippetFormatter
+where
+    T: TextProvider<'a> + 'a,
+    'tree: 'a,
+{
+    fn emit_matches(
         &self,
         query: &tree_sitter::Query,
         contents: &str,
         file_path: &Path,
-        matches: tree_sitter::QueryMatches<'a, 'a, &'a [u8]>,
+        matches: tree_sitter::QueryMatches<'a, 'tree, T>,
     ) {
         let names = query.capture_names();
 
