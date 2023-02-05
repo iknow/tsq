@@ -11,20 +11,19 @@ use tree_sitter::TextProvider;
 
 pub struct SnippetFormatter {}
 
-impl<'a, 'tree, T, Writer> Formatter<'a, 'tree, T, Writer> for SnippetFormatter
-where
-    Writer: Write,
-    T: TextProvider<'a> + 'a,
-    'tree: 'a,
-{
-    fn emit_matches(
+impl Formatter for SnippetFormatter {
+    fn emit_matches<'a, 'tree, T>(
         &self,
-        writer: &mut Writer,
+        writer: &mut impl Write,
         query: &tree_sitter::Query,
         contents: &str,
-        file_path: &Path,
+        file_path: &impl AsRef<Path>,
         matches: tree_sitter::QueryMatches<'a, 'tree, T>,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        T: TextProvider<'a> + 'a,
+        'tree: 'a,
+    {
         let names = query.capture_names();
 
         let mut slices = Vec::new();
@@ -74,6 +73,7 @@ where
                 })
             }
 
+            let file_path: &Path = file_path.as_ref();
             slices.push(Slice {
                 source: &contents[source_range],
                 line_start: line_start + 1,

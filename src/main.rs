@@ -1,5 +1,6 @@
 mod format;
 
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
@@ -9,7 +10,7 @@ use std::rc::Rc;
 
 use clap::Parser as ClapParser;
 use glob::glob;
-use tree_sitter::{Language, Parser, Query, QueryCursor, TextProvider, Tree};
+use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -35,21 +36,6 @@ pub enum Format {
     Snippet,
 }
 
-impl Format {
-    fn formatter<'a, 'tree, T, Writer>(&self) -> Box<dyn format::Formatter<'a, 'tree, T, Writer>>
-    where
-        Writer: Write,
-        T: TextProvider<'a> + 'a,
-        'tree: 'a,
-    {
-        match *self {
-            Format::Terse => Box::new(crate::format::terse::Terse {}),
-            Format::Verbose => Box::new(crate::format::verbose::Verbose {}),
-            Format::Snippet => Box::new(crate::format::snippet::SnippetFormatter {}),
-        }
-    }
-}
-
 struct LanguageBundle {
     language: Language,
     query: Query,
@@ -72,6 +58,11 @@ impl LanguageLoader {
     fn new(dir: PathBuf) -> LanguageLoader {
         let cache = HashMap::new();
         LanguageLoader { dir, cache }
+    }
+
+    fn new_with_default_path() -> LanguageLoader {
+        let grammar_dir = env::var("GRAMMAR_DIR").expect("Read grammar paths from GRAMMAR_DIR");
+        Self::new(PathBuf::from(grammar_dir))
     }
 
     fn load_language(&mut self, name: &str) -> Result<Language, Box<dyn std::error::Error>> {
@@ -104,15 +95,28 @@ impl LanguageLoader {
     }
 }
 
-fn init_languages(cli: &Cli) -> HashMap<String, Rc<LanguageBundle>> {
-    let query_str = fs::read_to_string(&cli.query).expect("Read query");
+#[cfg(test)]
+pub(crate) fn get_language(name: &str, query: &impl AsRef<Path>) -> Rc<LanguageBundle> {
+    let mut loader = LanguageLoader::new_with_default_path();
+    let query_str = fs::read_to_string(query).expect("Read query");
+    let language = loader.get_language(name).unwrap();
+    let query = Query::new(language, &query_str).expect("Construct query");
+    Rc::new(LanguageBundle { language, query })
+}
+
+pub(crate) fn init_languages(
+    query: &Path,
+    languages: impl IntoIterator<Item = impl Borrow<str>>,
+) -> HashMap<String, Rc<LanguageBundle>> {
+    let query_str = fs::read_to_string(query)
+        .unwrap_or_else(|_| panic!("Reading query from '{}'", query.display()));
 
     let mut result = HashMap::new();
 
-    let grammar_dir = env::var("GRAMMAR_DIR").expect("Read grammar paths from GRAMMAR_DIR");
-    let mut loader = LanguageLoader::new(PathBuf::from(grammar_dir));
+    let mut loader = LanguageLoader::new_with_default_path();
 
-    for language_spec in &cli.languages {
+    for language_spec in languages {
+        let language_spec = language_spec.borrow();
         if let [extensions, language_name] =
             &language_spec.split('=').take(2).collect::<Vec<&str>>()[..]
         {
@@ -135,22 +139,18 @@ fn init_languages(cli: &Cli) -> HashMap<String, Rc<LanguageBundle>> {
     result
 }
 
-pub(crate) fn process_file<W>(
-    writer: &mut W,
-    format: &Format,
-    path: &Path,
+pub(crate) fn process_file(
+    writer: &mut impl Write,
+    formatter: &impl format::Formatter,
+    path: &impl AsRef<Path>,
     lang: &LanguageBundle,
-) -> io::Result<()>
-where
-    W: Write,
-{
+) -> io::Result<()> {
     let contents = fs::read_to_string(path).expect("Read source file");
     let tree = lang.parse(&contents).expect("Parse source");
 
     let mut cursor = QueryCursor::new();
     let matches = cursor.matches(&lang.query, tree.root_node(), contents.as_bytes());
 
-    let formatter = format.formatter();
     formatter.emit_matches(writer, &lang.query, &contents, path, matches)?;
     Ok(())
 }
@@ -158,7 +158,7 @@ where
 fn main() {
     let args = Cli::parse();
 
-    let langs = init_languages(&args);
+    let langs = init_languages(&args.query, args.languages);
 
     let excluded = {
         let mut excluded_files = HashSet::new();
@@ -170,6 +170,26 @@ fn main() {
             let canonical_path = std::fs::canonicalize(path).expect("Canonicalize input file");
             excluded_files.contains(&canonical_path)
         }
+    };
+
+    let mut output = io::stdout();
+
+    type ProcessFile = dyn FnMut(&Path, &LanguageBundle) -> io::Result<()>;
+    let mut f: Box<ProcessFile> = match args.format {
+        Format::Terse => Box::new(move |path: &Path, lang: &LanguageBundle| {
+            process_file(&mut output, &crate::format::terse::Terse {}, &path, lang)
+        }),
+        Format::Verbose => Box::new(move |path: &Path, lang: &LanguageBundle| {
+            process_file(&mut output, &crate::format::terse::Terse {}, &path, lang)
+        }),
+        Format::Snippet => Box::new(move |path: &Path, lang: &LanguageBundle| {
+            process_file(
+                &mut output,
+                &crate::format::snippet::SnippetFormatter {},
+                &path,
+                lang,
+            )
+        }),
     };
 
     for pattern in args.globs {
@@ -185,7 +205,7 @@ fn main() {
                 .get(extension)
                 .unwrap_or_else(|| panic!("Getting parser for extension {:?}", extension));
 
-            process_file(&mut io::stdout(), &args.format, &entry_path, lang).unwrap();
+            f(entry_path.as_path(), lang).unwrap();
         }
     }
 }

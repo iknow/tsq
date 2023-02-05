@@ -7,18 +7,16 @@ pub mod snippet;
 pub mod terse;
 pub mod verbose;
 
-pub trait Formatter<'a, 'tree, T, Writer>
-where
-    Writer: Write,
-    T: TextProvider<'a> + 'a,
-    'tree: 'a,
-{
-    fn emit_matches(
+pub trait Formatter {
+    fn emit_matches<'a, 'tree, T>(
         &self,
-        writer: &mut Writer,
+        writer: &mut impl Write,
         query: &Query,
         contents: &str,
-        file_path: &Path,
+        file_path: &impl AsRef<Path>,
         matches: QueryMatches<'a, 'tree, T>,
-    ) -> io::Result<()>;
+    ) -> io::Result<()>
+    where
+        T: TextProvider<'a> + 'a,
+        'tree: 'a;
 }

@@ -1,6 +1,6 @@
 use crate::format::Formatter;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -34,29 +34,28 @@ struct Capture {
 #[derive(Serialize)]
 struct Matches {
     file: Option<String>,
-    matches: Vec<HashMap<String, Capture>>,
+    matches: Vec<BTreeMap<String, Capture>>,
 }
 
-impl<'a, 'tree, T, Writer> Formatter<'a, 'tree, T, Writer> for Verbose
-where
-    Writer: Write,
-    T: TextProvider<'a> + 'a,
-    'tree: 'a,
-{
-    fn emit_matches(
+impl Formatter for Verbose {
+    fn emit_matches<'a, 'tree, T>(
         &self,
-        writer: &mut Writer,
+        writer: &mut impl Write,
         query: &Query,
         contents: &str,
-        file_path: &Path,
+        file_path: &impl AsRef<Path>,
         matches: QueryMatches<'a, 'tree, T>,
-    ) -> io::Result<()> {
+    ) -> io::Result<()>
+    where
+        T: TextProvider<'a> + 'a,
+        'tree: 'a,
+    {
         let names = query.capture_names();
 
         let mut matches_json = Vec::new();
 
         for m in matches {
-            let mut captures = HashMap::new();
+            let mut captures = BTreeMap::new();
 
             for qc in m.captures {
                 let i: usize = qc.index.try_into().unwrap();
@@ -87,15 +86,43 @@ where
             matches_json.push(captures);
         }
 
+        let file_path: &Path = file_path.as_ref();
         let match_obj = Matches {
             file: file_path.to_str().map(|s| s.into()),
             matches: matches_json,
         };
 
-        serde_json::to_writer(writer, &match_obj)?;
+        serde_json::to_writer(&mut *writer, &match_obj)?;
+        writeln!(&mut *writer)?;
         Ok(())
     }
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use crate::format::verbose::Verbose;
+    use crate::{get_language, process_file};
+    use pretty_assertions::assert_eq;
+    use std::fs;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_mnoga() {
+        let lang = get_language("typescript", &PathBuf::from("examples/mnoga/locales.scm"));
+
+        let mut result = Vec::new();
+
+        process_file(
+            &mut result,
+            &Verbose {},
+            &PathBuf::from("examples/mnoga/index.spec.ts"),
+            &lang,
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string("examples/mnoga/verbose.expected").unwrap(),
+            String::from_utf8(result).unwrap(),
+        );
+    }
+}
