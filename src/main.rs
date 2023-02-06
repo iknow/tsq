@@ -98,8 +98,8 @@ impl LanguageLoader {
 #[cfg(test)]
 pub(crate) fn get_language(name: &str, query: &impl AsRef<Path>) -> Rc<LanguageBundle> {
     let mut loader = LanguageLoader::new_with_default_path();
-    let query_str = fs::read_to_string(query).expect("Read query");
     let language = loader.get_language(name).unwrap();
+    let query_str = fs::read_to_string(query).expect("Read query");
     let query = Query::new(language, &query_str).expect("Construct query");
     Rc::new(LanguageBundle { language, query })
 }
@@ -176,19 +176,17 @@ fn main() {
 
     type ProcessFile = dyn FnMut(&Path, &LanguageBundle) -> io::Result<()>;
     let mut f: Box<ProcessFile> = match args.format {
-        Format::Terse => Box::new(move |path: &Path, lang: &LanguageBundle| {
-            process_file(&mut output, &crate::format::terse::Terse {}, &path, lang)
+        Format::Terse => Box::new({
+            let fmt = crate::format::terse::Terse {};
+            move |path: &Path, lang: &LanguageBundle| process_file(&mut output, &fmt, &path, lang)
         }),
-        Format::Verbose => Box::new(move |path: &Path, lang: &LanguageBundle| {
-            process_file(&mut output, &crate::format::terse::Terse {}, &path, lang)
+        Format::Verbose => Box::new({
+            let fmt = crate::format::verbose::Verbose {};
+            move |path: &Path, lang: &LanguageBundle| process_file(&mut output, &fmt, &path, lang)
         }),
-        Format::Snippet => Box::new(move |path: &Path, lang: &LanguageBundle| {
-            process_file(
-                &mut output,
-                &crate::format::snippet::SnippetFormatter {},
-                &path,
-                lang,
-            )
+        Format::Snippet => Box::new({
+            let fmt = crate::format::snippet::SnippetFormatter {};
+            move |path: &Path, lang: &LanguageBundle| process_file(&mut output, &fmt, &path, lang)
         }),
     };
 
