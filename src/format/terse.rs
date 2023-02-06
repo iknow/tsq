@@ -24,13 +24,13 @@ impl Formatter for Terse {
         let names = query.capture_names();
 
         for m in matches {
-            let mut data = BTreeMap::<String, String>::new();
+            let mut data = BTreeMap::<&'a str, &'a str>::new();
 
             for qc in m.captures {
                 let i: usize = qc.index.try_into().unwrap();
                 let name = &names[i];
                 let match_contents = &contents[qc.node.byte_range()];
-                data.insert(name.into(), match_contents.into());
+                data.insert(name, match_contents);
             }
 
             serde_json::to_writer(&mut *writer, &data)?;

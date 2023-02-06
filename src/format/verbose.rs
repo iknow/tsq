@@ -17,8 +17,8 @@ struct Point {
 }
 
 #[derive(Serialize)]
-struct Node {
-    kind: String,
+struct Node<'a> {
+    kind: &'a str,
     start_byte: usize,
     end_byte: usize,
     start_position: Point,
@@ -26,15 +26,15 @@ struct Node {
 }
 
 #[derive(Serialize)]
-struct Capture {
-    content: String,
-    node: Node,
+struct Capture<'a> {
+    content: &'a str,
+    node: Node<'a>,
 }
 
 #[derive(Serialize)]
-struct Matches {
-    file: Option<String>,
-    matches: Vec<BTreeMap<String, Capture>>,
+struct Matches<'a> {
+    file: Option<&'a str>,
+    matches: Vec<BTreeMap<&'a str, Capture<'a>>>,
 }
 
 impl Formatter for Verbose {
@@ -55,7 +55,7 @@ impl Formatter for Verbose {
         let mut matches_json = Vec::new();
 
         for m in matches {
-            let mut captures = BTreeMap::new();
+            let mut captures = BTreeMap::<&'a str, Capture<'a>>::new();
 
             for qc in m.captures {
                 let i: usize = qc.index.try_into().unwrap();
@@ -63,10 +63,10 @@ impl Formatter for Verbose {
                 let match_contents = &contents[qc.node.byte_range()];
 
                 captures.insert(
-                    name.into(),
+                    name,
                     Capture {
                         node: Node {
-                            kind: qc.node.kind().into(),
+                            kind: qc.node.kind(),
                             start_byte: qc.node.start_byte(),
                             end_byte: qc.node.end_byte(),
                             start_position: Point {
@@ -78,7 +78,7 @@ impl Formatter for Verbose {
                                 column: qc.node.end_position().column,
                             },
                         },
-                        content: match_contents.into(),
+                        content: match_contents,
                     },
                 );
             }
@@ -88,7 +88,7 @@ impl Formatter for Verbose {
 
         let file_path: &Path = file_path.as_ref();
         let match_obj = Matches {
-            file: file_path.to_str().map(|s| s.into()),
+            file: file_path.to_str(),
             matches: matches_json,
         };
 
