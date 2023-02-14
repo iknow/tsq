@@ -1,12 +1,15 @@
+mod format;
+
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use clap::Parser as ClapParser;
 use glob::glob;
-use json;
 use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
 #[derive(clap::Parser)]
@@ -20,7 +23,17 @@ struct Cli {
     #[arg(short, long)]
     exclude: Vec<String>,
 
+    #[arg(short, long, value_enum, default_value_t = Format::Terse)]
+    format: Format,
+
     globs: Vec<String>,
+}
+
+#[derive(clap::ValueEnum, Clone)]
+pub enum Format {
+    Terse,
+    Verbose,
+    Snippet,
 }
 
 struct LanguageBundle {
@@ -47,6 +60,11 @@ impl LanguageLoader {
         LanguageLoader { dir, cache }
     }
 
+    fn new_with_default_path() -> LanguageLoader {
+        let grammar_dir = env::var("GRAMMAR_DIR").expect("Read grammar paths from GRAMMAR_DIR");
+        Self::new(PathBuf::from(grammar_dir))
+    }
+
     fn load_language(&mut self, name: &str) -> Result<Language, Box<dyn std::error::Error>> {
         let path = self.dir.join(name).join("parser");
 
@@ -71,33 +89,46 @@ impl LanguageLoader {
             None => {
                 let language = self.load_language(name)?;
                 self.cache.insert(String::from(name), language);
-                return Ok(language);
+                Ok(language)
             }
         }
     }
 }
 
-fn init_languages(cli: &Cli) -> HashMap<String, Rc<LanguageBundle>> {
-    let query_str = fs::read_to_string(&cli.query).expect("Read query");
+#[cfg(test)]
+pub(crate) fn get_language(name: &str, query: &impl AsRef<Path>) -> Rc<LanguageBundle> {
+    let mut loader = LanguageLoader::new_with_default_path();
+    let language = loader.get_language(name).unwrap();
+    let query_str = fs::read_to_string(query).expect("Read query");
+    let query = Query::new(language, &query_str).expect("Construct query");
+    Rc::new(LanguageBundle { language, query })
+}
+
+pub(crate) fn init_languages(
+    query: &Path,
+    languages: impl IntoIterator<Item = impl Borrow<str>>,
+) -> HashMap<String, Rc<LanguageBundle>> {
+    let query_str = fs::read_to_string(query)
+        .unwrap_or_else(|_| panic!("Reading query from '{}'", query.display()));
 
     let mut result = HashMap::new();
 
-    let grammar_dir = env::var("GRAMMAR_DIR").expect("Read grammar paths from GRAMMAR_DIR");
-    let mut loader = LanguageLoader::new(PathBuf::from(grammar_dir));
+    let mut loader = LanguageLoader::new_with_default_path();
 
-    for language_spec in &cli.languages {
+    for language_spec in languages {
+        let language_spec = language_spec.borrow();
         if let [extensions, language_name] =
-            &language_spec.split("=").take(2).collect::<Vec<&str>>()[..]
+            &language_spec.split('=').take(2).collect::<Vec<&str>>()[..]
         {
             let language = loader
                 .get_language(language_name)
-                .expect(format!("Load language: {}", language_name).as_str());
+                .unwrap_or_else(|_| panic!("Load language: {}", language_name));
 
             let query = Query::new(language, &query_str).expect("Construct query");
 
             let bundle = Rc::new(LanguageBundle { language, query });
 
-            for ext in extensions.split(",") {
+            for ext in extensions.split(',') {
                 result.insert(ext.to_string(), bundle.clone());
             }
         } else {
@@ -105,13 +136,29 @@ fn init_languages(cli: &Cli) -> HashMap<String, Rc<LanguageBundle>> {
         }
     }
 
-    return result;
+    result
+}
+
+pub(crate) fn process_file(
+    writer: &mut impl Write,
+    formatter: &impl format::Formatter,
+    path: &impl AsRef<Path>,
+    lang: &LanguageBundle,
+) -> io::Result<()> {
+    let contents = fs::read_to_string(path).expect("Read source file");
+    let tree = lang.parse(&contents).expect("Parse source");
+
+    let mut cursor = QueryCursor::new();
+    let matches = cursor.matches(&lang.query, tree.root_node(), contents.as_bytes());
+
+    formatter.emit_matches(writer, &lang.query, &contents, path, matches)?;
+    Ok(())
 }
 
 fn main() {
     let args = Cli::parse();
 
-    let langs = init_languages(&args);
+    let langs = init_languages(&args.query, args.languages);
 
     let excluded = {
         let mut excluded_files = HashSet::new();
@@ -125,6 +172,24 @@ fn main() {
         }
     };
 
+    let mut output = io::stdout();
+
+    type ProcessFile = dyn FnMut(&Path, &LanguageBundle) -> io::Result<()>;
+    let mut f: Box<ProcessFile> = match args.format {
+        Format::Terse => Box::new({
+            let fmt = crate::format::terse::Terse {};
+            move |path: &Path, lang: &LanguageBundle| process_file(&mut output, &fmt, &path, lang)
+        }),
+        Format::Verbose => Box::new({
+            let fmt = crate::format::verbose::Verbose {};
+            move |path: &Path, lang: &LanguageBundle| process_file(&mut output, &fmt, &path, lang)
+        }),
+        Format::Snippet => Box::new({
+            let fmt = crate::format::snippet::SnippetFormatter {};
+            move |path: &Path, lang: &LanguageBundle| process_file(&mut output, &fmt, &path, lang)
+        }),
+    };
+
     for pattern in args.globs {
         for entry in glob(&pattern).expect("Failed to glob inputs") {
             let entry_path = entry.expect("Read glob entry");
@@ -136,27 +201,9 @@ fn main() {
             let extension = entry_path.extension().unwrap().to_str().unwrap();
             let lang = langs
                 .get(extension)
-                .expect(format!("Getting parser for extension {:?}", extension).as_str());
+                .unwrap_or_else(|| panic!("Getting parser for extension {:?}", extension));
 
-            let contents = fs::read_to_string(entry_path).expect("Read source file");
-            let tree = lang.parse(&contents).expect("Parse source");
-            let names = lang.query.capture_names();
-
-            let mut cursor = QueryCursor::new();
-            let matches = cursor.matches(&lang.query, tree.root_node(), contents.as_bytes());
-
-            for m in matches {
-                let mut data = json::JsonValue::new_object();
-
-                for qc in m.captures {
-                    let i: usize = qc.index.try_into().unwrap();
-                    let name = &names[i];
-                    let match_contents = &contents[qc.node.byte_range()];
-                    data[name] = match_contents.into();
-                }
-
-                println!("{}", data.dump());
-            }
+            f(entry_path.as_path(), lang).unwrap();
         }
     }
 }
